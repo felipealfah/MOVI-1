@@ -1,4 +1,34 @@
+# ========================================
+# Dependencies
+# ========================================
+node_modules
+.pnp
+.pnp.js
+
+# ========================================
+# Build Output
+# ========================================
+dist
+dist-ssr
+build
+out
+.next
+*.local
+
+# ========================================
+# Environment Variables
+# ========================================
+# IMPORTANTE: Nunca commitar arquivos .env!
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.production
+
+# ========================================
 # Logs
+# ========================================
 logs
 *.log
 npm-debug.log*
@@ -7,19 +37,125 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-*.local
+# ========================================
+# Testing
+# ========================================
+coverage
+*.coverage
+.nyc_output
+.cache
 
-# Editor directories and files
+# ========================================
+# Editor & IDE
+# ========================================
+# VSCode
 .vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
 !.vscode/extensions.json
+*.code-workspace
+
+# JetBrains (WebStorm, IntelliJ, etc)
 .idea
+*.iml
+*.iws
+*.ipr
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+
+# ========================================
+# OS Files
+# ========================================
+# macOS
 .DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.directory
+.Trash-*
+
+# ========================================
+# Platform-specific
+# ========================================
+# Vercel
+.vercel
+.vercel.json
+
+# Netlify
+.netlify
+
+# Railway
+.railway
+
+# AWS
+.aws-sam
+
+# ========================================
+# Temporary & Misc
+# ========================================
+*.tmp
+*.temp
+*.cache
+*.bak
+*.swp
+*.swo
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
-.env
+
+# Lock files (opcional - descomente se quiser commitá-los)
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
+
+# ========================================
+# Security & Sensitive Data
+# ========================================
+# Nunca commitar:
+*.key
+*.pem
+*.p12
+*.pfx
+credentials.json
+secrets.json
+
+# ========================================
+# Supabase (local)
+# ========================================
+supabase/.branches
+supabase/.temp
+
+# ========================================
+# Debug & Development
+# ========================================
+.vscode-test
+.turbo
+.eslintcache
+tsconfig.tsbuildinfo

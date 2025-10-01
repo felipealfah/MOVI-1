@@ -1,9 +1,9 @@
 import React from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useData } from '../../contexts/DataContext';
 import { useState, useEffect } from 'react';
 import BuyCreditsModal from '../payments/BuyCreditsModal';
-import { getUserHistory, getApiEndpoints, RequestHistory, ApiEndpoint } from '../../lib/supabase';
-import { mockHistory, mockApiEndpoints } from '../../data/mockData';
+import { ApiEndpoint } from '../../lib/supabase';
 import { TrendingUp, Code, Clock, DollarSign, Activity, Cpu, Key, History, Zap } from 'lucide-react';
 
 interface DashboardProps {
@@ -12,83 +12,54 @@ interface DashboardProps {
 
 export default function Dashboard({ onViewChange }: DashboardProps) {
   const { user } = useAuth();
-  const [recentActivity, setRecentActivity] = useState<RequestHistory[]>([]);
+  const { history, apiEndpoints, loading } = useData();
   const [popularApis, setPopularApis] = useState<{ api: ApiEndpoint; count: number }[]>([]);
-  const [loading, setLoading] = useState(true);
   const [showBuyCreditsModal, setShowBuyCreditsModal] = useState(false);
 
+  // Calculate popular APIs when data changes
   useEffect(() => {
-    const loadDashboardData = async () => {
-      setLoading(true);
-      
-      try {
-        // Check if Supabase is configured
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-        const isConfigured = supabaseUrl && supabaseUrl.includes('supabase.co');
-        
-        if (isConfigured) {
-          const [historyData, apisData] = await Promise.all([
-            getUserHistory(),
-            getApiEndpoints()
-          ]);
-          
-          // Get recent activity (last 5 requests)
-          setRecentActivity(historyData.slice(0, 5));
-          
-          // Calculate popular APIs
-          const apiUsage = historyData.reduce((acc, request) => {
-            acc[request.api_id] = (acc[request.api_id] || 0) + 1;
-            return acc;
-          }, {} as Record<string, number>);
-          
-          const popular = Object.entries(apiUsage)
-            .map(([apiId, count]) => ({
-              api: apisData.find(api => api.id === apiId)!,
-              count
-            }))
-            .filter(item => item.api)
-            .sort((a, b) => b.count - a.count)
-            .slice(0, 3);
-          
-          setPopularApis(popular);
-        } else {
-          // Use mock data
-          setTimeout(() => {
-            setRecentActivity(mockHistory.slice(0, 5));
-            
-            // Mock popular APIs
-            const mockPopular = [
-              { api: { ...mockApiEndpoints[0], name: 'Video Generator', category: 'Video' }, count: 3 },
-              { api: mockApiEndpoints[1], count: 2 },
-              { api: mockApiEndpoints[2], count: 1 }
-            ];
-            setPopularApis(mockPopular);
-          }, 500);
-        }
-      } catch (error) {
-        console.error('Error loading dashboard data:', error);
-        // Fallback to mock data
-        setRecentActivity(mockHistory.slice(0, 5));
-        const mockPopular = [
-          { api: mockApiEndpoints[0], count: 3 },
-          { api: mockApiEndpoints[1], count: 2 },
-          { api: mockApiEndpoints[2], count: 1 }
-        ];
-        setPopularApis(mockPopular);
-      }
-      setLoading(false);
-    };
+    if (history.length > 0 && apiEndpoints.length > 0) {
+      const apiUsage = history.reduce((acc, request) => {
+        acc[request.api_id] = (acc[request.api_id] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
 
-    loadDashboardData();
-  }, []);
+      const popular = Object.entries(apiUsage)
+        .map(([apiId, count]) => ({
+          api: apiEndpoints.find(api => api.id === apiId)!,
+          count
+        }))
+        .filter(item => item.api)
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 3);
+
+      setPopularApis(popular);
+    }
+  }, [history, apiEndpoints]);
+
+  const recentActivity = history.slice(0, 5);
 
   if (!user) return null;
 
-  // Mock data for now - will be replaced with real data from database
-  const totalRequests = 5;
-  const successRequests = 4;
-  const totalCostsThisMonth = 27;
-  const successRate = ((successRequests / totalRequests) * 100).toFixed(1);
+  // Calculate real stats from history data
+  const thisMonth = new Date();
+  thisMonth.setDate(1);
+  thisMonth.setHours(0, 0, 0, 0);
+
+  const historyThisMonth = history.filter(h =>
+    new Date(h.created_at) >= thisMonth
+  );
+
+  const totalRequests = historyThisMonth.length;
+  const successRequests = historyThisMonth.filter(h =>
+    h.status === 'success' || h.status === 'done'
+  ).length;
+  const totalCostsThisMonth = historyThisMonth.reduce((sum, h) =>
+    sum + (h.credits_cost || 0), 0
+  );
+  const successRate = totalRequests > 0
+    ? ((successRequests / totalRequests) * 100).toFixed(1)
+    : '0.0';
 
   const handleViewChange = (view: 'dashboard' | 'apis' | 'tokens' | 'history' | 'profile') => {
     if (onViewChange) {

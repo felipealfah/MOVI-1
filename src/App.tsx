@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useEffect } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { DataProvider } from './contexts/DataContext';
 import AuthPage from './components/auth/AuthPage';
 import AuthCallback from './components/auth/AuthCallback';
 import { Code } from 'lucide-react';
@@ -14,6 +15,8 @@ import History from './components/views/History';
 import Profile from './components/views/Profile';
 import Documentation from './components/views/Documentation';
 import BuyCreditsModal from './components/payments/BuyCreditsModal';
+import ErrorBoundary from './components/ErrorBoundary';
+import useErrorHandler from './hooks/useErrorHandler';
 
 function AppContent() {
   const { user, loading, signOut, refreshUser } = useAuth();
@@ -21,6 +24,9 @@ function AppContent() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [paymentMessage, setPaymentMessage] = useState<string | null>(null);
   const [showBuyCreditsModal, setShowBuyCreditsModal] = useState(false);
+
+  // Initialize global error handling
+  useErrorHandler();
 
   // Check if we're on the auth callback route
   const isAuthCallback = window.location.pathname === '/auth/callback';
@@ -36,7 +42,7 @@ function AppContent() {
         // Refresh user data to get updated credits with delay
         console.log('Payment successful, refreshing user data...');
         setTimeout(async () => {
-          await refreshUser();
+          await refreshUser(true); // Skip loading state for background refresh
           console.log('User data refreshed after payment');
         }, 2000); // Wait 2 seconds for webhook to process
         // Clear URL parameters
@@ -103,7 +109,7 @@ function AppContent() {
       case 'profile':
         return <Profile />;
       case 'documentation':
-        return <Documentation />;
+        return <Documentation onViewChange={setCurrentView} onBuyCredits={() => setShowBuyCreditsModal(true)} />;
       default:
         return <Dashboard />;
     }
@@ -127,30 +133,38 @@ function AppContent() {
       )}
 
       <div className="relative flex h-screen overflow-hidden">
-        <Sidebar
-          currentView={currentView}
-          onViewChange={setCurrentView}
-          isOpen={sidebarOpen}
-          onToggle={() => setSidebarOpen(!sidebarOpen)}
-          onBuyCredits={() => setShowBuyCreditsModal(true)}
-        />
-        
+        <ErrorBoundary componentName="Sidebar">
+          <Sidebar
+            currentView={currentView}
+            onViewChange={setCurrentView}
+            isOpen={sidebarOpen}
+            onToggle={() => setSidebarOpen(!sidebarOpen)}
+            onBuyCredits={() => setShowBuyCreditsModal(true)}
+          />
+        </ErrorBoundary>
+
         <div className="flex-1 flex flex-col overflow-hidden lg:ml-0">
-          <Header onToggleSidebar={() => setSidebarOpen(!sidebarOpen)} />
+          <ErrorBoundary componentName="Header">
+            <Header onToggleSidebar={() => setSidebarOpen(!sidebarOpen)} />
+          </ErrorBoundary>
           <main className="flex-1 overflow-auto">
-            {currentView === 'dashboard' ? (
-              <Dashboard onViewChange={setCurrentView} />
-            ) : (
-              renderView()
-            )}
+            <ErrorBoundary componentName={`${currentView}View`}>
+              {currentView === 'dashboard' ? (
+                <Dashboard onViewChange={setCurrentView} />
+              ) : (
+                renderView()
+              )}
+            </ErrorBoundary>
           </main>
         </div>
-        
+
         {/* Buy Credits Modal */}
-        <BuyCreditsModal 
-          isOpen={showBuyCreditsModal} 
-          onClose={() => setShowBuyCreditsModal(false)} 
-        />
+        <ErrorBoundary componentName="BuyCreditsModal">
+          <BuyCreditsModal
+            isOpen={showBuyCreditsModal}
+            onClose={() => setShowBuyCreditsModal(false)}
+          />
+        </ErrorBoundary>
       </div>
     </div>
   );
@@ -158,9 +172,15 @@ function AppContent() {
 
 function App() {
   return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
+    <ErrorBoundary componentName="App">
+      <AuthProvider>
+        <DataProvider>
+          <ErrorBoundary componentName="AuthProvider">
+            <AppContent />
+          </ErrorBoundary>
+        </DataProvider>
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }
 

@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { getUserHistory } from '../../lib/supabase';
+import { useData } from '../../contexts/DataContext';
 import { Key, Copy, Eye, EyeOff, CheckCircle } from 'lucide-react';
 
 export default function Tokens() {
   const { user } = useAuth();
-  const [loading, setLoading] = useState(true);
+  const { history, loading } = useData();
   const [stats, setStats] = useState({
     requestsToday: 0,
     requestsThisMonth: 0,
@@ -16,58 +16,36 @@ export default function Tokens() {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   useEffect(() => {
-    const loadStats = async () => {
-      setLoading(true);
-      try {
-        // Check if Supabase is configured
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-        const isConfigured = supabaseUrl && supabaseUrl.includes('supabase.co');
-        
-        if (isConfigured) {
-          const history = await getUserHistory();
-          
-          // Calculate today's requests
-          const today = new Date();
-          today.setHours(0, 0, 0, 0);
-          const requestsToday = history.filter(h => 
-            new Date(h.created_at) >= today
-          ).length;
-          
-          // Calculate this month's requests
-          const thisMonth = new Date();
-          thisMonth.setDate(1);
-          thisMonth.setHours(0, 0, 0, 0);
-          const requestsThisMonth = history.filter(h => 
-            new Date(h.created_at) >= thisMonth
-          ).length;
-          
-          setStats({
-            requestsToday,
-            requestsThisMonth,
-            uptime: 98.5 // This would come from monitoring system
-          });
-        } else {
-          // Use mock data when Supabase not configured
-          setStats({
-            requestsToday: 2,
-            requestsThisMonth: 5,
-            uptime: 98.5
-          });
-        }
-      } catch (error) {
-        console.error('Error loading stats:', error);
-        // Fallback to mock data
-        setStats({
-          requestsToday: 2,
-          requestsThisMonth: 5,
-          uptime: 98.5
-        });
-      }
-      setLoading(false);
-    };
+    if (history.length > 0) {
+      // Calculate today's requests
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const requestsToday = history.filter(h =>
+        new Date(h.created_at) >= today
+      ).length;
 
-    loadStats();
-  }, []);
+      // Calculate this month's requests
+      const thisMonth = new Date();
+      thisMonth.setDate(1);
+      thisMonth.setHours(0, 0, 0, 0);
+      const requestsThisMonth = history.filter(h =>
+        new Date(h.created_at) >= thisMonth
+      ).length;
+
+      setStats({
+        requestsToday,
+        requestsThisMonth,
+        uptime: 98.5 // This would come from monitoring system
+      });
+    } else if (!loading) {
+      // Use default values when no history
+      setStats({
+        requestsToday: 0,
+        requestsThisMonth: 0,
+        uptime: 98.5
+      });
+    }
+  }, [history, loading]);
 
 
   const copyToClipboard = (text: string, keyId: string) => {

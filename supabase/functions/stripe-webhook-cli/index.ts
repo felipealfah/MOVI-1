@@ -1,294 +1,159 @@
-import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
-import Stripe from 'npm:stripe@17.7.0';
-import { createClient } from 'npm:@supabase/supabase-js@2.49.1';
-
-const stripeSecret = Deno.env.get('STRIPE_SECRET_KEY')!;
-const stripeWebhookSecret = Deno.env.get('STRIPE_WEBHOOK_SECRET')!;
-const stripe = new Stripe(stripeSecret, {
-  appInfo: {
-    name: 'MoviAPI Integration',
-    version: '1.0.0',
-  },
-});
-
-const supabase = createClient(
-  Deno.env.get('SUPABASE_URL')!, 
-  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-);
+import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
+import Stripe from 'https://esm.sh/stripe@14.21.0?target=deno'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS, GET',
-  'Access-Control-Allow-Headers': 'stripe-signature, content-type, authorization, apikey',
-};
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, stripe-signature',
+}
 
-Deno.serve(async (req) => {
-  console.log(`🚀 CLI Webhook - Received ${req.method} request`);
-  console.log('📋 Headers:', Object.fromEntries(req.headers.entries()));
-  
+serve(async (req) => {
+  // Handle CORS preflight requests
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders })
+  }
+
   try {
-    if (req.method === 'OPTIONS') {
-      console.log('✅ Handling CORS preflight');
-      return new Response(null, { status: 200, headers: corsHeaders });
+    console.log('Stripe webhook received')
+
+    // Get Stripe credentials from environment
+    const stripeSecretKey = Deno.env.get('STRIPE_SECRET_KEY')
+    const stripeWebhookSecret = Deno.env.get('STRIPE_WEBHOOK_SECRET')
+
+    if (!stripeSecretKey) {
+      throw new Error('STRIPE_SECRET_KEY not configured')
     }
 
-    // Handle GET requests for testing
-    if (req.method === 'GET') {
-      console.log('🧪 Test request received');
-      
-      // Test database connection
-      try {
-        const { data: testUser, error: testError } = await supabase
-          .from('users')
-          .select('id, email, credits')
-          .limit(1)
-          .single();
-        
-        if (testError) {
-          console.error('❌ Database test failed:', testError);
-          return new Response(JSON.stringify({ 
-            status: 'error', 
-            message: 'Database connection failed',
-            error: testError.message 
-          }), {
-            status: 500,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-          });
-        }
-        
-        console.log('✅ Database test successful:', testUser);
-        return new Response(JSON.stringify({ 
-          status: 'success', 
-          message: 'Webhook function is working!',
-          database: 'connected',
-          testUser: testUser
-        }), {
-          status: 200,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        });
-      } catch (err: any) {
-        console.error('💥 Test error:', err);
-        return new Response(JSON.stringify({ 
-          status: 'error', 
-          message: err.message 
-        }), {
-          status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        });
-      }
+    if (!stripeWebhookSecret) {
+      throw new Error('STRIPE_WEBHOOK_SECRET not configured')
     }
 
-    if (req.method !== 'POST') {
-      console.log('❌ Method not allowed:', req.method);
-      return new Response(JSON.stringify({ error: 'Method not allowed' }), { 
-        status: 405, 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
-    }
+    const stripe = new Stripe(stripeSecretKey, {
+      apiVersion: '2023-10-16',
+      httpClient: Stripe.createFetchHttpClient(),
+    })
 
-    // Get signature from headers
-    const signature = req.headers.get('stripe-signature');
-    console.log('🔐 Stripe signature:', signature ? 'Present' : 'Missing');
-    
+    // Get Stripe signature from header
+    const signature = req.headers.get('stripe-signature')
     if (!signature) {
-      console.error('❌ No stripe-signature header found');
-      return new Response(JSON.stringify({ error: 'No signature found' }), { 
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
+      throw new Error('No stripe-signature header')
     }
 
-    // Get raw body
-    const body = await req.text();
-    console.log('📦 Body length:', body.length);
+    // Get raw body for signature verification
+    const body = await req.text()
 
-    let event: Stripe.Event;
-
+    // Verify webhook signature
+    let event: Stripe.Event
     try {
-      event = await stripe.webhooks.constructEventAsync(body, signature, stripeWebhookSecret);
-      console.log('✅ Webhook signature verified for event:', event.type);
-    } catch (error: any) {
-      console.error('❌ Webhook signature verification failed:', error.message);
-      return new Response(JSON.stringify({ error: `Webhook signature verification failed: ${error.message}` }), { 
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
+      event = stripe.webhooks.constructEvent(body, signature, stripeWebhookSecret)
+      console.log('Webhook signature verified:', event.type)
+    } catch (err) {
+      console.error('Webhook signature verification failed:', err.message)
+      return new Response(
+        JSON.stringify({ error: 'Webhook signature verification failed' }),
+        { status: 400, headers: corsHeaders }
+      )
     }
 
-    console.log(`🎯 Processing webhook event: ${event.type}`);
+    // Initialize Supabase client
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
-    // Handle the event
+    // Handle different event types
     switch (event.type) {
-      case 'checkout.session.completed':
-        console.log('💳 Processing checkout session completed');
-        await handleCheckoutSessionCompleted(event.data.object as Stripe.Checkout.Session);
-        break;
-      case 'payment_intent.succeeded':
-        console.log('✅ Processing payment intent succeeded');
-        await handlePaymentIntentSucceeded(event.data.object as Stripe.PaymentIntent);
-        break;
-      default:
-        console.log(`ℹ️ Unhandled event type: ${event.type}`);
-    }
+      case 'checkout.session.completed': {
+        const session = event.data.object as Stripe.Checkout.Session
+        console.log('Checkout session completed:', session.id)
 
-    console.log('🎉 Webhook processed successfully');
-    return new Response(JSON.stringify({ received: true }), {
-      status: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-    });
+        const userId = session.metadata?.user_id
+        if (!userId || userId === 'anonymous') {
+          console.warn('No user_id in session metadata')
+          break
+        }
 
-  } catch (error: any) {
-    console.error('💥 Error processing webhook:', error);
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-    });
-  }
-});
+        // Get price details to determine credits
+        const priceId = session.line_items?.data[0]?.price?.id
+        const amountTotal = session.amount_total || 0
 
-async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) {
-  console.log(`💳 Processing checkout session: ${session.id}`);
-  console.log('📋 Session metadata:', session.metadata);
-  
-  const userId = session.metadata?.user_id;
-  if (!userId) {
-    console.error('❌ No user_id in session metadata');
-    return;
-  }
+        // Map price ID to credits (should match your stripe-config.ts)
+        const creditsMap: Record<string, number> = {
+          'price_1SBh9MA3Ey5GjayWnkwgOAQD': 100,   // Basic
+          'price_1SBhAmA3Ey5GjayWsBWfi0ty': 500,   // Premium
+          'price_1SBhBdA3Ey5GjayWBMmMqteL': 1000,  // Business
+        }
 
-  console.log(`👤 Processing payment for user: ${userId}`);
+        const credits = priceId ? creditsMap[priceId] || 0 : 0
 
-  try {
-    // First, check if user exists
-    console.log('🔍 Checking if user exists...');
-    const { data: existingUser, error: userError } = await supabase
-      .from('users')
-      .select('id, email, credits')
-      .eq('id', userId)
-      .single();
+        if (credits > 0) {
+          // Add credits to user
+          const { error: updateError } = await supabase
+            .from('users')
+            .update({
+              credits: supabase.rpc('increment', { x: credits }),
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', userId)
 
-    if (userError) {
-      console.error('❌ Error finding user:', userError);
-      return;
-    }
+          if (updateError) {
+            console.error('Failed to update user credits:', updateError)
+          } else {
+            console.log(`Added ${credits} credits to user ${userId}`)
+          }
+        }
 
-    console.log('✅ User found:', existingUser);
+        // Save order record
+        const { error: orderError } = await supabase
+          .from('stripe_orders')
+          .insert({
+            user_id: userId,
+            stripe_session_id: session.id,
+            stripe_payment_intent: session.payment_intent as string,
+            amount: amountTotal / 100, // Convert cents to dollars
+            currency: session.currency || 'usd',
+            status: session.payment_status,
+            credits_added: credits,
+            metadata: session.metadata,
+          })
 
-    // Check if stripe_orders table exists and try to record the order
-    console.log('💾 Attempting to record order...');
-    try {
-      const { error: orderError } = await supabase
-        .from('stripe_orders')
-        .insert({
-          checkout_session_id: session.id,
-          payment_intent_id: session.payment_intent as string,
-          customer_id: session.customer as string,
-          amount_subtotal: session.amount_subtotal || 0,
-          amount_total: session.amount_total || 0,
-          currency: session.currency || 'usd',
-          payment_status: session.payment_status || 'unpaid',
-          status: 'completed',
-        });
+        if (orderError) {
+          console.error('Failed to save order:', orderError)
+        }
 
-      if (orderError) {
-        console.error('❌ Error recording order (but continuing):', orderError);
-        // Don't return here, continue with adding credits
-      } else {
-        console.log('✅ Order recorded successfully');
+        break
       }
-    } catch (orderException) {
-      console.error('💥 Exception recording order (but continuing):', orderException);
-      // Don't return here, continue with adding credits
-    }
 
-    // Add credits to user account (this is the most important part)
-    await addCreditsToUser(userId, session);
-    
-  } catch (error) {
-    console.error('💥 Error in handleCheckoutSessionCompleted:', error);
-  }
-}
+      case 'payment_intent.succeeded': {
+        const paymentIntent = event.data.object as Stripe.PaymentIntent
+        console.log('Payment succeeded:', paymentIntent.id)
+        break
+      }
 
-async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent) {
-  console.log(`✅ Payment intent succeeded: ${paymentIntent.id}`);
-  // Additional processing if needed
-}
+      case 'payment_intent.payment_failed': {
+        const paymentIntent = event.data.object as Stripe.PaymentIntent
+        console.log('Payment failed:', paymentIntent.id)
+        break
+      }
 
-async function addCreditsToUser(userId: string, session: Stripe.Checkout.Session) {
-  try {
-    console.log(`💰 Adding credits to user: ${userId}`);
-    
-    // Get the price ID from the session
-    const lineItems = await stripe.checkout.sessions.listLineItems(session.id);
-    const priceId = lineItems.data[0]?.price?.id;
-    
-    console.log(`🏷️ Price ID: ${priceId}`);
-    console.log(`📦 Line items:`, JSON.stringify(lineItems.data, null, 2));
-    
-    if (!priceId) {
-      console.error('❌ No price ID found in session');
-      return;
-    }
-
-    // Determine credits to add based on price ID
-    let creditsToAdd = 0;
-    
-    // Map price IDs to credits based on your products
-    switch (priceId) {
-      case 'price_1SBh9MA3Ey5GjayWnkwgOAQD': // Basic Plan
-        creditsToAdd = 100;
-        break;
-      case 'price_1SBhAmA3Ey5GjayWsBWfi0ty': // Premium Plan
-        creditsToAdd = 500;
-        break;
-      case 'price_1SBhBdA3Ey5GjayWBMmMqteL': // Business Plan
-        creditsToAdd = 1000;
-        break;
       default:
-        console.log(`❓ Unknown price ID: ${priceId}, adding default credits`);
-        creditsToAdd = 100; // Default credits
+        console.log('Unhandled event type:', event.type)
     }
 
-    console.log(`💎 Credits to add: ${creditsToAdd}`);
-
-    // Get current user credits
-    console.log('🔍 Fetching current user credits...');
-    const { data: user, error: getUserError } = await supabase
-      .from('users')
-      .select('credits')
-      .eq('id', userId)
-      .single();
-
-    if (getUserError) {
-      console.error('❌ Error fetching user:', getUserError);
-      return;
-    }
-
-    console.log(`💰 Current user credits: ${user.credits}`);
-
-    // Update user credits
-    const newCredits = (user.credits || 0) + creditsToAdd;
-    
-    console.log('💾 Updating user credits...');
-    console.log(`📊 Old credits: ${user.credits}, Adding: ${creditsToAdd}, New total: ${newCredits}`);
-    
-    const { data: updatedUser, error: updateError } = await supabase
-      .from('users')
-      .update({ credits: newCredits })
-      .eq('id', userId)
-      .select()
-      .single();
-
-    if (updateError) {
-      console.error('❌ Error updating user credits:', updateError);
-      return;
-    }
-
-    console.log(`🎉 Successfully updated user credits!`);
-    console.log(`📊 Updated user data:`, updatedUser);
-    console.log(`💰 Final credits: ${updatedUser.credits}`);
-
+    return new Response(
+      JSON.stringify({ received: true }),
+      {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 200,
+      }
+    )
   } catch (error) {
-    console.error('💥 Error adding credits to user:', error);
+    console.error('Webhook error:', error)
+    return new Response(
+      JSON.stringify({ error: error.message }),
+      {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 400,
+      }
+    )
   }
-}
+})

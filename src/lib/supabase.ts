@@ -170,12 +170,37 @@ export const createApiKey = async (name: string): Promise<ApiKey> => {
 };
 
 export const getUserHistory = async (): Promise<RequestHistory[]> => {
+  console.log('🔍 getUserHistory: Starting...');
+
+  // Get current user
+  const { data: { user } } = await supabase.auth.getUser();
+  console.log('👤 Current user:', user?.email || 'No user');
+
+  if (!user) {
+    console.error('❌ User not authenticated');
+    throw new Error('User not authenticated');
+  }
+
+  console.log('📡 Fetching history for user:', user.id);
+  const startTime = Date.now();
+
   const { data, error } = await supabase
     .from('request_history')
     .select('*')
+    .eq('user_id', user.id)  // Filter by current user ID
     .order('created_at', { ascending: false });
 
-  if (error) throw error;
+  const endTime = Date.now();
+  console.log(`⏱️ Database query took: ${endTime - startTime}ms`);
+
+  if (error) {
+    console.error('❌ Database error:', error);
+    throw error;
+  }
+
+  console.log(`✅ Found ${data?.length || 0} history records`);
+  console.log('📋 History data:', data);
+
   return data || [];
 };
 
@@ -239,4 +264,128 @@ export const updateUserCredits = async (newCredits: number) => {
 
   if (error) throw error;
   return data;
+};
+
+// Error logging functions
+export const logError = async (errorData: {
+  error_type: 'javascript' | 'network' | 'authentication' | 'payment' | 'api' | 'render' | 'unknown';
+  error_message: string;
+  error_stack?: string | null;
+  component_name?: string | null;
+  metadata?: any;
+  is_critical?: boolean;
+}) => {
+  try {
+    // Get current user (if authenticated)
+    const { data: { user } } = await supabase.auth.getUser();
+
+    const errorLog = {
+      user_id: user?.id || null,
+      error_type: errorData.error_type,
+      error_message: errorData.error_message,
+      error_stack: errorData.error_stack || null,
+      component_name: errorData.component_name || null,
+      url: window.location.href,
+      user_agent: navigator.userAgent,
+      metadata: errorData.metadata || {},
+      is_critical: errorData.is_critical || false,
+      resolved: false,
+    };
+
+    // Only log to database if Supabase is configured
+    if (isSupabaseConfigured) {
+      const { data, error } = await supabase
+        .from('error_logs')
+        .insert([errorLog])
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Failed to log error to database:', error);
+        // Fallback to console log if database logging fails
+        console.error('Original error:', errorLog);
+      } else {
+        console.log('Error logged to database:', data.id);
+      }
+    } else {
+      // Log to console when Supabase is not configured
+      console.error('Error (DB not configured):', errorLog);
+    }
+  } catch (loggingError) {
+    // Prevent infinite loops - just log to console if error logging fails
+    console.error('Failed to log error:', loggingError);
+    console.error('Original error:', errorData);
+  }
+};
+
+// Helper function to log JavaScript errors
+export const logJavaScriptError = (error: Error, componentName?: string, metadata?: any) => {
+  logError({
+    error_type: 'javascript',
+    error_message: error.message,
+    error_stack: error.stack,
+    component_name: componentName,
+    metadata: {
+      ...metadata,
+      errorName: error.name,
+    },
+    is_critical: true,
+  });
+};
+
+// Helper function to log network errors
+export const logNetworkError = (url: string, status: number, statusText: string, metadata?: any) => {
+  logError({
+    error_type: 'network',
+    error_message: `Network error: ${status} ${statusText}`,
+    metadata: {
+      ...metadata,
+      url,
+      status,
+      statusText,
+    },
+    is_critical: false,
+  });
+};
+
+// Helper function to log API errors
+export const logApiError = (apiName: string, error: any, metadata?: any) => {
+  logError({
+    error_type: 'api',
+    error_message: `API Error in ${apiName}: ${error.message || error}`,
+    error_stack: error.stack,
+    metadata: {
+      ...metadata,
+      apiName,
+      error: typeof error === 'object' ? JSON.stringify(error) : error,
+    },
+    is_critical: true,
+  });
+};
+
+// Helper function to log render errors
+export const logRenderError = (componentName: string, error: Error, metadata?: any) => {
+  logError({
+    error_type: 'render',
+    error_message: `Render error in ${componentName}: ${error.message}`,
+    error_stack: error.stack,
+    component_name: componentName,
+    metadata: {
+      ...metadata,
+      errorName: error.name,
+    },
+    is_critical: true,
+  });
+};
+
+// Get error logs for admin/debugging (optional)
+export const getErrorLogs = async (limit: number = 50) => {
+  const { data, error } = await supabase
+    .from('error_logs')
+    .select('*')
+    .order('timestamp', { ascending: false })
+    .limit(limit);
+
+  if (error) throw error;
+  return data || [];
 };

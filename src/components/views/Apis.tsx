@@ -1,7 +1,10 @@
 import React, { useState } from 'react';
 import { useEffect } from 'react';
-import { getApiEndpoints, ApiEndpoint } from '../../lib/supabase';
+import { useData } from '../../contexts/DataContext';
+import { ApiEndpoint } from '../../lib/supabase';
 import { Code, Book, ExternalLink, Copy, CheckCircle } from 'lucide-react';
+import { TokenEstimator } from '../common/TokenEstimator';
+import { useTokenValidation } from '../../hooks/useTokenValidation';
 
 // Mock APIs for fallback (updated structure)
 const mockApis: ApiEndpoint[] = [
@@ -104,40 +107,11 @@ const mockApis: ApiEndpoint[] = [
 ];
 
 export default function Apis() {
-  const [apis, setApis] = useState<ApiEndpoint[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { apiEndpoints: apis, loading } = useData();
   const [selectedApi, setSelectedApi] = useState<ApiEndpoint | null>(null);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
-
-  useEffect(() => {
-    const loadApis = async () => {
-      setLoading(true);
-      try {
-        // Check if Supabase is configured
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-        const isConfigured = supabaseUrl && supabaseUrl.includes('supabase.co');
-        
-        if (isConfigured) {
-          const data = await getApiEndpoints();
-          setApis(data);
-        } else {
-          // Use mock data
-          setTimeout(() => {
-            setApis(mockApis);
-            setLoading(false);
-          }, 800);
-          return; // Early return to prevent setting loading to false immediately
-        }
-      } catch (error) {
-        console.error('Error loading APIs:', error);
-        // Fallback to mock data
-        setApis(mockApis);
-      }
-      setLoading(false);
-    };
-
-    loadApis();
-  }, []);
+  const [testInputData, setTestInputData] = useState<any>({});
+  const { validateAndProceed } = useTokenValidation();
 
   const copyToClipboard = (text: string, type: string) => {
     navigator.clipboard.writeText(text);
@@ -269,6 +243,65 @@ export default function Apis() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          </div>
+
+          {/* Token Estimator */}
+          <div className="border border-white p-6" style={{ backgroundColor: '#212121' }}>
+            <h2 className="text-xl font-bold text-white mb-4">Token Estimation</h2>
+            <p className="text-gray-400 mb-4">
+              Test your request and see estimated token usage before making the actual API call
+            </p>
+
+            <div className="space-y-4">
+              {/* Test Input */}
+              <div>
+                <label className="block text-white mb-2">Test Input (JSON):</label>
+                <textarea
+                  value={JSON.stringify(testInputData, null, 2)}
+                  onChange={(e) => {
+                    try {
+                      const parsed = JSON.parse(e.target.value);
+                      setTestInputData(parsed);
+                    } catch {
+                      // Keep the current value if JSON is invalid
+                    }
+                  }}
+                  placeholder={selectedApi.documentation.example.request}
+                  className="w-full h-32 p-3 bg-gray-800 border border-gray-600 text-white font-mono text-sm rounded"
+                />
+              </div>
+
+              {/* Token Estimator Component */}
+              <TokenEstimator
+                apiEndpoint={selectedApi.name.toLowerCase().replace(/\s+/g, '-')}
+                inputData={testInputData}
+                showDetails={true}
+                className="mt-4"
+              />
+
+              {/* Quick Test Buttons */}
+              <div className="flex gap-2 mt-4">
+                <button
+                  onClick={() => {
+                    try {
+                      const exampleData = JSON.parse(selectedApi.documentation.example.request);
+                      setTestInputData(exampleData);
+                    } catch (error) {
+                      console.error('Error parsing example:', error);
+                    }
+                  }}
+                  className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                >
+                  Use Example
+                </button>
+                <button
+                  onClick={() => setTestInputData({})}
+                  className="px-4 py-2 bg-gray-600 text-white hover:bg-gray-700 transition-colors"
+                >
+                  Clear
+                </button>
+              </div>
             </div>
           </div>
 

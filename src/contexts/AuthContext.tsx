@@ -28,6 +28,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [supabaseUser, setSupabaseUser] = useState<SupabaseUser | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Safety timeout to prevent infinite loading
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      if (loading) {
+        console.warn('Loading timeout reached - forcing to false');
+        setLoading(false);
+      }
+    }, 10000); // 10 seconds timeout
+
+    return () => clearTimeout(timeout);
+  }, [loading]);
+
   // Check if Supabase is configured
   useEffect(() => {
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -50,6 +62,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.log('Setting mock user immediately');
       setUser(mockUser);
       setLoading(false);
+      console.log('Loading set to false (mock mode)');
       return;
     }
 
@@ -64,24 +77,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setSupabaseUser(session?.user ?? null);
       
       if (session?.user) {
-        await refreshUser();
+        await refreshUser(true); // Skip loading state during initial auth
       }
-      
+
       setLoading(false);
+      console.log('Loading set to false (Supabase auth complete)');
 
       // Listen for auth changes
       const {
         data: { subscription },
       } = supabase.auth.onAuthStateChange(async (event, session) => {
+        console.log('Auth state change:', event, session?.user ? 'user exists' : 'no user');
         setSupabaseUser(session?.user ?? null);
-        
+
         if (session?.user) {
-          await refreshUser();
+          await refreshUser(true); // Skip loading state during auth changes
         } else {
           setUser(null);
         }
-        
-        setLoading(false);
+
+        // Don't set loading to false here - it's already managed
       });
 
       return () => subscription.unsubscribe();
@@ -91,10 +106,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.log('Falling back to mock data');
       setUser(mockUser);
       setLoading(false);
+      console.log('Loading set to false (Supabase error fallback)');
     }
   };
 
-  const refreshUser = async () => {
+  const refreshUser = async (skipLoadingState: boolean = false) => {
+    if (!skipLoadingState) {
+      setLoading(true);
+    }
+
     try {
       const userData = await getCurrentUser();
       setUser(userData);
@@ -102,6 +122,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (error) {
       console.error('Error fetching user:', error);
       setUser(null);
+    } finally {
+      if (!skipLoadingState) {
+        setLoading(false);
+      }
     }
   };
 
@@ -140,7 +164,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         data: {
           name,
         },
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
+        emailRedirectTo: `${import.meta.env.VITE_APP_URL || window.location.origin}/auth/callback`,
         // Email confirmation is handled by Supabase settings
       },
     });

@@ -45,8 +45,8 @@ export async function createCheckoutSession(
   console.log('Access token found, proceeding...');
   console.log('Access token preview:', session.access_token.substring(0, 20) + '...');
 
-  // Use window.location.origin para URLs de retorno
-  const baseUrl = window.location.origin;
+  // Use URL configurável ou window.location.origin como fallback
+  const baseUrl = import.meta.env.VITE_APP_URL || window.location.origin;
   console.log('Base URL:', baseUrl);
   const successUrl = `${baseUrl}/?payment=success`;
   const cancelUrl = `${baseUrl}/?payment=canceled`;

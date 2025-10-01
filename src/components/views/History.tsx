@@ -1,57 +1,13 @@
 import React, { useState } from 'react';
 import { useEffect } from 'react';
-import { getUserHistory, RequestHistory, getApiEndpoints, ApiEndpoint, checkVideoAvailability, getVideoWithStatus } from '../../lib/supabase';
-import { mockHistory } from '../../data/mockData';
+import { useData } from '../../contexts/DataContext';
+import { RequestHistory, ApiEndpoint, checkVideoAvailability, getVideoWithStatus } from '../../lib/supabase';
 import { History as HistoryIcon, Filter, ExternalLink, Eye, Download, X, Clock, AlertTriangle } from 'lucide-react';
 
 export default function History() {
-  const [history, setHistory] = useState<RequestHistory[]>([]);
-  const [apis, setApis] = useState<ApiEndpoint[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { history, apiEndpoints: apis, loading } = useData();
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedRequest, setSelectedRequest] = useState<RequestHistory | null>(null);
-
-  useEffect(() => {
-    const loadData = async () => {
-      setLoading(true);
-      try {
-        // Check if Supabase is configured
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-        const isConfigured = supabaseUrl && supabaseUrl.includes('supabase.co');
-        
-        if (isConfigured) {
-          const historyData = await getUserHistory();
-          const apisData = await getApiEndpoints();
-          setHistory(historyData);
-          setApis(apisData);
-        } else {
-          // Use mock data
-          setTimeout(() => {
-            setHistory(mockHistory);
-            setApis([
-              { id: '1', name: 'Image Generator', category: 'Image' },
-              { id: '2', name: 'Text Analyzer', category: 'Text' },
-              { id: '3', name: 'QR Code Generator', category: 'Utilities' }
-            ] as ApiEndpoint[]);
-            setLoading(false);
-          }, 700);
-          return; // Early return to prevent setting loading to false immediately
-        }
-      } catch (error) {
-        console.error('Error loading data:', error);
-        // Fallback to mock data
-        setHistory(mockHistory);
-        setApis([
-          { id: '1', name: 'Image Generator', category: 'Image' },
-          { id: '2', name: 'Text Analyzer', category: 'Text' },
-          { id: '3', name: 'QR Code Generator', category: 'Utilities' }
-        ] as ApiEndpoint[]);
-      }
-      setLoading(false);
-    };
-
-    loadData();
-  }, []);
 
   const getApiName = (apiId: string) => {
     const api = apis.find(a => a.id === apiId);

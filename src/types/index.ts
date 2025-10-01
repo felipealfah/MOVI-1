@@ -53,4 +53,19 @@ export interface RequestHistory {
   creditsCost: number;
 }
 
+export interface ErrorLog {
+  id: string;
+  user_id: string | null;
+  error_type: 'javascript' | 'network' | 'authentication' | 'payment' | 'api' | 'render' | 'unknown';
+  error_message: string;
+  error_stack: string | null;
+  component_name: string | null;
+  url: string;
+  user_agent: string;
+  timestamp: string;
+  metadata: any;
+  is_critical: boolean;
+  resolved: boolean;
+}
+
 export type View = 'dashboard' | 'apis' | 'tokens' | 'history' | 'profile' | 'documentation';
